@@ -5,34 +5,61 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 
+// Middleware to validate video ID
+const validateVideoId = asyncHandler(async (req, res, next) => {
+    const { videoId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(videoId)) {
+        throw new ApiError(400, "Invalid video ID");
+    }
+    next();
+});
+
+// Middleware to check if video exists
+const checkVideoExistence = asyncHandler(async (req, res, next) => {
+    const { videoId } = req.params;
+    const video = await Video.findById(videoId);
+    if (!video) {
+        throw new ApiError(404, "Video not found");
+    }
+    req.video = video;
+    next();
+});
+
+// Controller to get all videos with pagination and filters
 const getAllVideos = asyncHandler(async (req, res) => {
+    // Extract query parameters from request
     const { page = 1, limit = 10, query, sortBy, sortType, userId } = req.query;
 
+    // Check if userId is provided
     if (!userId) {
         throw new ApiError(400, "User Id is required");
     }
 
+    // Define common aggregation pipeline stages for video aggregation
     const videoCommonAggregation = (req) => {
         const pipeline = [
+            // Lookup comments associated with each video
             {
                 $lookup: {
-                    from: "comments", // Assuming this is the collection where comments are stored
+                    from: "comments",
                     localField: "_id",
                     foreignField: "video",
                     as: "comments",
                 },
             },
+            // Lookup likes associated with each video
             {
                 $lookup: {
-                    from: "likes", // Assuming this is the collection where likes are stored
+                    from: "likes",
                     localField: "_id",
                     foreignField: "video",
                     as: "likes",
                 },
             },
+            // Lookup if current user has liked each video
             {
                 $lookup: {
-                    from: "likes", // Assuming this is the collection where likes are stored
+                    from: "likes",
                     localField: "_id",
                     foreignField: "video",
                     as: "isLiked",
@@ -47,6 +74,7 @@ const getAllVideos = asyncHandler(async (req, res) => {
                     ],
                 },
             },
+            // Lookup owner details for each video
             {
                 $lookup: {
                     from: "users",
@@ -64,6 +92,7 @@ const getAllVideos = asyncHandler(async (req, res) => {
                     ],
                 },
             },
+            // Add additional fields like likesCount, commentsCount, and isLiked
             {
                 $addFields: {
                     user: { $first: "$user" },
@@ -71,14 +100,7 @@ const getAllVideos = asyncHandler(async (req, res) => {
                     commentsCount: { $size: "$comments" },
                     isLiked: {
                         $cond: {
-                            if: {
-                                $gte: [
-                                    {
-                                        $size: "$isLiked",
-                                    },
-                                    1,
-                                ],
-                            },
+                            if: { $gte: [{ $size: "$isLiked" }, 1] },
                             then: true,
                             else: false,
                         },
@@ -115,8 +137,10 @@ const getAllVideos = asyncHandler(async (req, res) => {
         return pipeline;
     };
 
+    // Perform video aggregation with common aggregation pipeline
     const videoAggregation = Video.aggregate(videoCommonAggregation(req));
 
+    // Pagination options
     const options = {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -126,16 +150,21 @@ const getAllVideos = asyncHandler(async (req, res) => {
         },
     };
 
+    // Execute aggregation with pagination options
     const videos = await Video.aggregatePaginate(videoAggregation, options);
 
+    // Respond with paginated video data
     res.status(200).json(
         new ApiResponse(200, videos, "Successfully fetched videos")
     );
 });
 
+// Controller to publish a new video
 const publishAVideo = asyncHandler(async (req, res) => {
+    // Extract title and description from request body
     const { title, description } = req.body;
 
+    // Check if title and description are provided
     if (!(title && description)) {
         return res
             .status(400)
@@ -143,23 +172,28 @@ const publishAVideo = asyncHandler(async (req, res) => {
     }
 
     try {
+        // Get local paths for video and thumbnail files
         const videoLocalPath = req.files?.videoFile[0]?.path;
         const thumbnailLocalPath = req.files?.thumbnail[0]?.path;
 
+        // Check if video and thumbnail files are uploaded
         if (!videoLocalPath && !thumbnailLocalPath) {
             return res
                 .status(400)
                 .json(new ApiError(400, "Please upload video and thumbnail"));
         }
 
+        // Upload video and thumbnail files to Cloudinary
         const videoOnCloudinary = await uploadOnCloudinary(videoLocalPath);
         const thumbnailOnCloudinary =
             await uploadOnCloudinary(thumbnailLocalPath);
 
+        // Extract required data from Cloudinary response
         const videoFile = videoOnCloudinary.secure_url;
         const duration = videoOnCloudinary.duration;
         const thumbnail = thumbnailOnCloudinary.secure_url;
 
+        // Create new video document
         const video = await Video.create({
             videoFile,
             thumbnail,
@@ -169,6 +203,7 @@ const publishAVideo = asyncHandler(async (req, res) => {
             owner: req.user?._id,
         });
 
+        // Respond with success message and created video data
         res.status(201).json(
             new ApiResponse(201, video, "Video uploaded successfully")
         );
@@ -178,24 +213,31 @@ const publishAVideo = asyncHandler(async (req, res) => {
     }
 });
 
+// Controller to get a video by ID
 const getVideoById = asyncHandler(async (req, res) => {
+    // Extract videoId from request parameters
     const { videoId } = req.params;
 
     try {
+        // Find video by ID
         const video = await Video.findById(videoId);
 
+        // Check if video exists
         if (!video) {
             throw new ApiError(404, "Video not found");
         }
 
+        // Increment views count for the video
         video.views += 1;
         await video.save();
 
+        // Respond with success message and video data
         res.status(200).json(
             new ApiResponse(200, video, "Video viewed successfully")
         );
     } catch (error) {
         console.error(error);
+        // Handle error response
         res.status(
             error instanceof mongoose.Error.CastError
                 ? 400
@@ -209,18 +251,23 @@ const getVideoById = asyncHandler(async (req, res) => {
     }
 });
 
+// Controller to update a video
 const updateVideo = asyncHandler(async (req, res) => {
+    // Extract videoId from request parameters
     const { videoId } = req.params;
+    // Extract title and description from request body
     const { title, description } = req.body;
 
     try {
+        // Get local path for the thumbnail file
         const thumbnailLocalPath = req.file?.path;
 
+        // Check if thumbnail file is uploaded
         if (!thumbnailLocalPath) {
             throw new ApiError(400, "Invalid thumbnail");
         }
 
-        // Handle thumbnail upload to Cloudinary
+        // Upload thumbnail file to Cloudinary
         const thumbnailOnCloudinary =
             await uploadOnCloudinary(thumbnailLocalPath);
         if (!thumbnailOnCloudinary.secure_url) {
@@ -242,15 +289,18 @@ const updateVideo = asyncHandler(async (req, res) => {
             }
         );
 
+        // Check if video exists
         if (!updatedVideo) {
             throw new ApiError(404, "Video not found");
         }
 
+        // Respond with success message and updated video data
         res.status(200).json(
             new ApiResponse(200, updatedVideo, "Video updated successfully")
         );
     } catch (error) {
         console.error(error);
+        // Handle error response
         res.status(
             error instanceof mongoose.Error.CastError
                 ? 400
@@ -264,7 +314,9 @@ const updateVideo = asyncHandler(async (req, res) => {
     }
 });
 
+// Controller to delete a video
 const deleteVideo = asyncHandler(async (req, res) => {
+    // Extract videoId from request parameters
     const { videoId } = req.params;
 
     try {
@@ -276,15 +328,18 @@ const deleteVideo = asyncHandler(async (req, res) => {
         // Delete video document from MongoDB
         const deletedVideo = await Video.findByIdAndDelete(videoId);
 
+        // Check if video exists
         if (!deletedVideo) {
             throw new ApiError(404, "Video not found");
         }
 
+        // Respond with success message and deleted video data
         res.status(200).json(
             new ApiResponse(200, deletedVideo, "Video deleted successfully")
         );
     } catch (error) {
         console.error(error);
+        // Handle error response
         res.status(
             error instanceof mongoose.Error.CastError
                 ? 400
@@ -298,7 +353,9 @@ const deleteVideo = asyncHandler(async (req, res) => {
     }
 });
 
+// Controller to toggle publish status of a video
 const togglePublishStatus = asyncHandler(async (req, res) => {
+    // Extract videoId from request parameters
     const { videoId } = req.params;
 
     try {
@@ -310,6 +367,7 @@ const togglePublishStatus = asyncHandler(async (req, res) => {
         // Find the video document by ID
         const video = await Video.findById(videoId);
 
+        // Check if video exists
         if (!video) {
             throw new ApiError(404, "Video not found");
         }
@@ -325,11 +383,12 @@ const togglePublishStatus = asyncHandler(async (req, res) => {
             new ApiResponse(
                 200,
                 video.isPublished,
-                "Successfully toggled the publish status"
+                "Publish status toggled successfully"
             )
         );
     } catch (error) {
         console.error(error);
+        // Handle error response
         res.status(
             error instanceof mongoose.Error.CastError
                 ? 400
@@ -344,6 +403,8 @@ const togglePublishStatus = asyncHandler(async (req, res) => {
 });
 
 export {
+    validateVideoId, //new
+    checkVideoExistence, //new
     getAllVideos,
     publishAVideo,
     getVideoById,
