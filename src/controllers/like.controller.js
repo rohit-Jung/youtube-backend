@@ -129,6 +129,7 @@ const toggleTweetLike = asyncHandler(async (req, res) => {
 
         // Find the tweet in the database
         const tweet = await Tweet.findById(tweetId);
+        console.log(tweet);
 
         // Check if the tweet exists
         if (!tweet) {

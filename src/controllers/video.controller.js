@@ -121,7 +121,7 @@ const getAllVideos = asyncHandler(async (req, res) => {
         if (userId) {
             pipeline.unshift({
                 $match: {
-                    owner: mongoose.Types.ObjectId(userId),
+                    owner: new mongoose.Types.ObjectId(userId),
                 },
             });
         }
