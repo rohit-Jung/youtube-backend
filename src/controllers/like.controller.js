@@ -30,34 +30,51 @@ const toggleVideoLike = asyncHandler(async (req, res) => {
         }
 
         // Check if the user has already liked the video
-        const alreadyLiked = await Like.findOne({
+        const alreadyLiked = await Like.exists({
             video: videoId,
             likedBy: req.user._id,
         });
 
         // If the user has already liked the video, remove the like
-        if (alreadyLiked && alreadyLiked.length > 0) {
-            await Like.findByIdAndDelete(alreadyLiked, { new: true });
+        if (alreadyLiked) {
+            const unlike = await Like.findByIdAndDelete(
+                {
+                    video: videoId,
+                    likedBy: req.user._id,
+                },
+                { new: true }
+            );
+
+            if (!unlike) {
+                throw new ApiError(401, "Could not unlike video");
+            }
             return res
                 .status(200)
-                .json(new ApiResponse(true, "User already liked the video."));
+                .json(
+                    new ApiResponse(
+                        true,
+                        "User already liked the video. Toggled the like"
+                    )
+                );
+        } else {
+            // Like the video
+            const likeVideo = await Like.create({
+                video: videoId,
+                likedBy: req.user._id,
+            });
+
+            // Check if video could be liked
+            if (!likeVideo) {
+                throw new ApiError(401, "Video could not be liked");
+            }
+
+            // Respond with success message and liked video data
+            return res
+                .status(200)
+                .json(
+                    new ApiResponse(true, "Video liked successfully", likeVideo)
+                );
         }
-
-        // Like the video
-        const likeVideo = await Like.create({
-            video: videoId,
-            likedBy: req.user._id,
-        });
-
-        // Check if video could be liked
-        if (!likeVideo) {
-            throw new ApiError(401, "Video could not be liked");
-        }
-
-        // Respond with success message and liked video data
-        return res
-            .status(200)
-            .json(new ApiResponse(true, "Video liked successfully", likeVideo));
     } catch (error) {
         // Handle errors
         throw new ApiError(401, "Unable to like video", error);
@@ -73,6 +90,11 @@ const toggleCommentLike = asyncHandler(async (req, res) => {
             throw new ApiError(400, "Comment Id is required");
         }
 
+        // Check if commentId is a valid ObjectId
+        if (!isValidObjectId(commentId)) {
+            throw new ApiError(400, "Invalid Comment Id");
+        }
+
         // Find the comment in the database
         const comment = await Comment.findById(commentId);
 
@@ -82,36 +104,54 @@ const toggleCommentLike = asyncHandler(async (req, res) => {
         }
 
         // Check if the user has already liked the comment
-        const alreadyLiked = await Like.findOne({
+        const alreadyLiked = await Like.exists({
             comment: commentId,
             likedBy: req.user._id,
         });
 
         // If the user has already liked the comment, remove the like
-        if (alreadyLiked && alreadyLiked.length > 0) {
-            await Like.findByIdAndDelete(alreadyLiked, { new: true });
+        if (alreadyLiked) {
+            const unlike = await Like.findByIdAndDelete(
+                {
+                    comment: commentId,
+                    likedBy: req.user._id,
+                },
+                { new: true }
+            );
+            if (!unlike) {
+                throw new ApiError(401, "Could not unlike comment");
+            }
             return res
                 .status(200)
-                .json(new ApiResponse(true, "User already liked the comment"));
+                .json(
+                    new ApiResponse(
+                        true,
+                        "User already liked the comment. Toggled the like "
+                    )
+                );
+        } else {
+            // Like the comment
+            const likeComment = await Like.create({
+                comment: commentId,
+                likedBy: req.user._id,
+            });
+
+            // Check if comment could be liked
+            if (!likeComment) {
+                throw new ApiError(404, "Comment could not be liked");
+            }
+
+            // Respond with success message and liked comment data
+            return res
+                .status(200)
+                .json(
+                    new ApiResponse(
+                        true,
+                        "Comment liked successfully",
+                        likeComment
+                    )
+                );
         }
-
-        // Like the comment
-        const likeComment = await Like.create({
-            comment: commentId,
-            likedBy: req.user._id,
-        });
-
-        // Check if comment could be liked
-        if (!likeComment) {
-            throw new ApiError(404, "Comment could not be liked");
-        }
-
-        // Respond with success message and liked comment data
-        return res
-            .status(200)
-            .json(
-                new ApiResponse(true, "Comment liked successfully", likeComment)
-            );
     } catch (error) {
         // Handle errors
         throw new ApiError(401, "Unable to like comment", error);
@@ -127,9 +167,14 @@ const toggleTweetLike = asyncHandler(async (req, res) => {
             throw new ApiError(404, "Tweet Id could not be obtained");
         }
 
+        // Check if tweetId is a valid
+        if (!isValidObjectId(tweetId)) {
+            throw new ApiError(400, "Invalid Tweet Id");
+        }
+
         // Find the tweet in the database
         const tweet = await Tweet.findById(tweetId);
-        console.log(tweet);
+        // console.log(tweet);
 
         // Check if the tweet exists
         if (!tweet) {
@@ -137,34 +182,54 @@ const toggleTweetLike = asyncHandler(async (req, res) => {
         }
 
         // Check if the user has already liked the tweet
-        const alreadyLiked = await Like.findOne({
+        const alreadyLiked = await Like.exists({
             tweet: tweetId,
             likedBy: req.user._id,
         });
 
         // If the user has already liked the tweet, remove the like
-        if (alreadyLiked && alreadyLiked.length > 0) {
-            await Tweet.findOneAndDelete(alreadyLiked, { new: true });
+        if (alreadyLiked) {
+            const unlike = await Like.findOneAndDelete(
+                {
+                    tweet: tweetId,
+                    likedBy: req.user._id,
+                },
+                {
+                    new: true,
+                }
+            );
+
+            if (!unlike) {
+                throw new ApiError(400, "Toggling like failed");
+            }
+
             return res
                 .status(200)
-                .json(new ApiResponse(true, "Tweet was already liked"));
+                .json(
+                    new ApiResponse(
+                        true,
+                        "Tweet was already liked. Like Toggled"
+                    )
+                );
+        } else {
+            // Like the tweet
+            const likeTweet = await Like.create({
+                tweet: tweetId,
+                likedBy: req.user._id,
+            });
+
+            // Check if tweet could be liked
+            if (!likeTweet) {
+                throw new ApiError(404, "Tweet could not liked");
+            }
+
+            // Respond with success message and liked tweet data
+            return res
+                .status(200)
+                .json(
+                    new ApiResponse(true, "Tweet liked Successfully", likeTweet)
+                );
         }
-
-        // Like the tweet
-        const likeTweet = await Like.create({
-            tweet: tweetId,
-            likedBy: req.user._id,
-        });
-
-        // Check if tweet could be liked
-        if (!likeTweet) {
-            throw new ApiError(404, "Tweet could not liked");
-        }
-
-        // Respond with success message and liked tweet data
-        return res
-            .status(200)
-            .json(new ApiResponse(true, "Tweet liked Successfully", likeTweet));
     } catch (error) {
         // Handle errors
         throw new ApiError(401, "Unable to like tweet", error);
