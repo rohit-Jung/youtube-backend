@@ -4,6 +4,8 @@ import { Subscription } from "../models/subscription.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { Comment } from "../models/comment.model.js";
+import { Tweet } from "../models/tweet.model.js";
 
 // Controller to get channel statistics
 const getChannelStats = asyncHandler(async (req, res) => {
@@ -12,7 +14,7 @@ const getChannelStats = asyncHandler(async (req, res) => {
 
         // Get total videos and views
         const videoStats = await Video.aggregate([
-            { $match: { owner: mongoose.Types.ObjectId(userId) } },
+            { $match: { owner: new mongoose.Types.ObjectId(userId) } },
             {
                 $group: {
                     _id: null,
@@ -61,7 +63,7 @@ const getChannelStats = asyncHandler(async (req, res) => {
 // Helper function to get total likes for a given model
 const getLikesCount = async (model, userId, field) => {
     const likes = await model.aggregate([
-        { $match: { owner: mongoose.Types.ObjectId(userId) } },
+        { $match: { owner: new mongoose.Types.ObjectId(userId) } },
         {
             $lookup: {
                 from: "likes",
